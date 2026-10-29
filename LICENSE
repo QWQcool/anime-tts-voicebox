@@ -19,22 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-说明 / Note
-
-本许可只覆盖本仓库内的代码与文档（setup.ps1、配音台源码、README、
-使用说明、截图等）。仓库不包含任何模型权重、声线文件或生成音频，这些
-资源由 setup.ps1 在运行时从上游下载，分别受各自的许可证约束：
-
-- GPT-SoVITS 代码            MIT
-- AivisSpeech              其发布包自带许可证
-- AivisHub 声线             ACML 1.0（ACML-NC 变体不可商用）
-- AI-Hobbyist 角色模型      CC-BY-NC 4.0（仅个人学习与二次创作，禁止商用）
-- 声优 / 动漫角色本人的声音  人格权、肖像权，与模型许可证无关
-
-This license covers only the code and documentation in this repository.
-No model weights, voice files or generated audio are distributed here; they
-are downloaded from upstream at install time and remain under their own
-licenses.
