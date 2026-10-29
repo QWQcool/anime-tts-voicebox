@@ -99,6 +99,12 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 
 ---
 
+## 许可（License）
+
+本仓库的**代码与文档**（`setup.ps1`、配音台源码、README、使用说明、截图）走 **MIT**，见 [LICENSE](LICENSE)。
+
+仓库**不分发**任何模型权重、声线文件或生成音频——`setup.ps1` 在安装时从上游现下，这些资源各自归各自的许可证管（下表）。所以「拿这份代码去改去卖」和「拿这套声线去商配」是两回事，前者 MIT 允许，后者看下表。
+
 ## 授权边界（别踩）
 
 | 对象 | 授权 | 商用 |
