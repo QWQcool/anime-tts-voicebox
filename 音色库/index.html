@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音色库 · 本地二次元 TTS</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23ff3d68'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-size='14' font-weight='700' fill='%23fff' text-anchor='middle'%3ECV%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="brand-mark">CV</div>
+      <div>
+        <h1>音色库</h1>
+        <p>本地二次元 TTS · 角色声库</p>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item is-on" data-tab="dub"><span>配音台</span><em>输入文字 → 出音频</em></button>
+      <button class="nav-item" data-tab="how"><span>怎么放</span><em>安装说明</em></button>
+      <button class="nav-item" data-tab="ms"><span>GPT-SoVITS</span><em>中文 / 日语 / 跨语言</em></button>
+      <button class="nav-item" data-tab="aivis"><span>AivisSpeech</span><em>纯日语声线</em></button>
+      <button class="nav-item" data-tab="mine"><span>已装的音色</span><em>本机清单</em></button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="stat" id="st-gsvi"><i></i><span>GSVI :8000</span><b>检测中</b></div>
+      <div class="stat" id="st-aivis"><i></i><span>引擎 :10101</span><b>检测中</b></div>
+      <button class="ghost-btn" id="btn-open-v4">打开音色目录</button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ============ 配音台 ============ -->
+    <section class="tab is-on" id="tab-dub">
+      <header class="page-head compact">
+        <p class="eyebrow">文本 → 音频 · 本地 / 云端可选</p>
+        <h2>写作词，挑音色，直接出配音</h2>
+        <p class="lede">一段一行，空行会被忽略。每段单独出一个 wav，落在
+          <code id="dub-dir">音色库\out</code>，文件名带时间和台词，剪映里直接拖。</p>
+      </header>
+
+      <div class="dub-grid">
+        <div class="dub-sheet">
+          <label class="f-label" for="dub-text">台词</label>
+          <textarea id="dub-text" rows="9" placeholder="老师，今天也一起加油吧！
+这一句我想说得慢一点。
+（空行会被跳过）"></textarea>
+          <div class="dub-actions">
+            <span id="dub-count" class="dub-count">0 段 · 0 字</span>
+            <button class="btn dub-go" id="dub-go">开始配音 (Ctrl+Enter)</button>
+          </div>
+        </div>
+
+        <aside class="dub-side">
+          <div class="field">
+            <span class="f-label">引擎</span>
+            <div class="seg" id="dub-engine">
+              <button class="seg-b is-on" data-engine="local">本地 GSVI</button>
+              <button class="seg-b" data-engine="mimo" disabled>云端 MiMo</button>
+            </div>
+          </div>
+
+          <div id="grp-local">
+            <div class="field">
+              <span class="f-label">音色</span>
+              <select id="dub-voice"></select>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <span class="f-label">参考语言</span>
+                <select id="dub-plang"></select>
+              </div>
+              <div class="field">
+                <span class="f-label">参考情感</span>
+                <select id="dub-emotion"></select>
+              </div>
+            </div>
+            <div class="field">
+              <span class="f-label">文本语言</span>
+              <select id="dub-tlang"></select>
+            </div>
+          </div>
+
+          <div id="grp-mimo" hidden>
+            <div class="field">
+              <span class="f-label">音色（预置）</span>
+              <select id="dub-mvoice"></select>
+            </div>
+            <div class="field">
+              <span class="f-label">风格指令（自然语言）</span>
+              <input id="dub-style" type="text" value="少女感的动漫配音，语气活泼，带一点撒娇">
+            </div>
+            <p class="hint">云端引擎：<b>文本会上传到小米服务器</b>，返回 24kHz wav。日语请切回本地引擎。</p>
+          </div>
+
+          <p class="hint" id="dub-hint">参考语言/情感来自音色包自带的参考音频，不用你上传。</p>
+        </aside>
+      </div>
+
+      <div id="dub-out" class="dub-out"></div>
+    </section>
+
+    <!-- ============ 怎么放 ============ -->
+    <section class="tab" id="tab-how">
+      <header class="page-head">
+        <p class="eyebrow">读这一页就够</p>
+        <h2>一个角色 = 一个文件夹，名字写对了程序才认</h2>
+        <p class="lede">两个引擎的规矩不一样：GPT-SoVITS 靠<b>目录名</b>扫描，AivisSpeech 靠 <b>uuid 文件名</b>。
+          下面的工具会自动按规矩装好，但知道规矩能救你无数次。</p>
+      </header>
+
+      <div class="steps">
+        <article class="step">
+          <div class="step-no">1</div>
+          <div class="step-body">
+            <h3>先选一条路线</h3>
+            <p>要做<b>中文配音</b>，或一句里中英日混着说 → 走 GPT-SoVITS。<br>
+               只要<b>纯日语、要换情绪（あまあま / からかい 等）</b> → 走 AivisSpeech。<br>
+               两条都装不冲突，端口分开，可以同时开。</p>
+            <div class="chips">
+              <span class="chip chip-ms">GPT-SoVITS · 4000+ 角色</span>
+              <span class="chip chip-av">AivisSpeech · 76 声线</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-no">2</div>
+          <div class="step-body">
+            <h3>去哪里找</h3>
+            <p><b>GPT-SoVITS</b>：ModelScope 上的 AI-Hobbyist 合集，按「游戏 / 语言 / 角色.zip」组织，
+              共 849GB、8 个游戏目录（原神 / 妮姬 / 崩坏三 / 明日方舟 / 星穹铁道 / 绝区零 / 蔚蓝档案 / 鸣潮）。
+              语言只有 <code>中文</code> <code>日语</code> <code>韩语</code> 三种。</p>
+            <p><b>AivisSpeech</b>：AivisHub 官方 API，共 76 个公开声线，分 3 页。</p>
+            <p class="note">本页左侧两个标签就是这两处的浏览器，已经帮你把 CORS 和中文编码都处理了。
+              每张卡片右下角的「来源 ↗」会开到官方页面，能看作者、授权条款和试听——<b>装之前建议点开看一眼授权</b>。</p>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-no">3</div>
+          <div class="step-body">
+            <h3>放哪里（这步最容易错）</h3>
+            <div class="pathbox">
+              <div class="pathrow">
+                <span class="tag tag-ms">GPT-SoVITS</span>
+                <code>D:\TTS\GSVI\GPT-SoVITS-1007-cu124\models\v4\<b>&lt;游戏&gt;-&lt;语言&gt;-&lt;角色&gt;</b>\</code>
+              </div>
+              <div class="pathrow">
+                <span class="tag tag-av">AivisSpeech</span>
+                <code>%APPDATA%\AivisSpeech-Engine\Models\<b>&lt;uuid&gt;.aivmx</b></code>
+              </div>
+            </div>
+            <div class="formula">
+              <span class="f-label">目录名公式</span>
+              <div class="f-line"><b>蔚蓝档案</b><i>-</i><b>中文</b><i>-</i><b>爱丽丝</b><em>✓ 能扫到</em></div>
+              <div class="f-line bad"><b>爱丽丝</b><em>✗ 少两段，扫不到</em></div>
+              <div class="f-line bad"><b>BlueArchive-zh-Alice</b><em>✗ 语言必须写中日韩</em></div>
+            </div>
+            <p>文件夹里必须有：<code>*.ckpt</code>（GPT 权重）+ <code>*.pth</code>（SoVITS 权重）+
+              <code>reference_audios\&lt;语言&gt;\emotions\【情感】文本.wav</code>。</p>
+          </div>
+        </article>
+
+        <article class="step">
+          <div class="step-no">4</div>
+          <div class="step-body">
+            <h3>确认它被扫到了</h3>
+            <pre class="code">curl http://127.0.0.1:8000/models/v4</pre>
+            <p>看到你的新目录名就成功了。<b>本机实测 GSVI 每次请求都重新扫描</b>，
+              装完直接刷新浏览器即可，不用重启；个别老版本才需要关掉黑窗口重开。</p>
+            <p>AivisSpeech 不一样：<code>.aivmx</code> 只在引擎启动时加载，<b>必须重启引擎</b>，
+              之后 <code>/speakers</code> 才会列出来。</p>
+          </div>
+        </article>
+      </div>
+
+      <div class="warn-grid">
+        <div class="warn">
+          <h4>中文名会变乱码</h4>
+          <p>音色 zip 里的文件名是 GBK 编码。用资源管理器右键解压没问题，用 Python 解要加
+            <code>metadata_encoding='gbk'</code>，否则解出来一堆问号目录名。</p>
+        </div>
+        <div class="warn">
+          <h4>授权看 license_type，不看模型名</h4>
+          <p><code>ACML 1.0</code> 可商用；<code>ACML-NC</code> / <code>CC-BY-NC</code> 只能自用二创。
+            本机的「蔚蓝档案-爱丽丝」是 CC-BY-NC，<b>不能接商单</b>。</p>
+        </div>
+        <div class="warn">
+          <h4>语言参数只认这几个词</h4>
+          <p><code>中文 英语 日语 粤语 韩语 中英混合 日英混合 粤英混合 韩英混合 多语种混合</code>。
+            写「日文」直接报参数错误。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ GPT-SoVITS ============ -->
+    <section class="tab" id="tab-ms">
+      <header class="page-head compact">
+        <p class="eyebrow">ModelScope · ai-hobbyist 合集</p>
+        <h2>选游戏 → 选语言 → 点角色</h2>
+        <div class="crumbs" id="ms-crumbs"></div>
+        <p class="src-line"><a class="src" target="_blank" rel="noopener"
+          href="https://www.modelscope.cn/models/aihobbyist/GPT-SoVITS_Model_Collection/files">来源仓库：ModelScope · ai-hobbyist 合集 ↗</a></p>
+        <div class="searchbar" id="ms-filter" hidden>
+          <input id="ms-q" type="search" placeholder="在 168 个角色里找，例如 白子、优香、泳装" autocomplete="off">
+        </div>
+      </header>
+      <div id="ms-body" class="ms-body"><div class="loading">读取目录…</div></div>
+    </section>
+
+    <!-- ============ AivisSpeech ============ -->
+    <section class="tab" id="tab-aivis">
+      <header class="page-head compact">
+        <p class="eyebrow">AivisHub · 76 个公开声线</p>
+        <h2>按下载量排序，点一下直接装</h2>
+        <p class="src-line"><a class="src" target="_blank" rel="noopener"
+          href="https://hub.aivis-project.com/">来源站点：AivisHub ↗</a></p>
+        <div class="searchbar">
+          <input id="av-q" type="search" placeholder="搜声线名 / 作者 / 关键词，例如 まお、少女、男性" autocomplete="off">
+          <select id="av-lic">
+            <option value="">全部授权</option>
+            <option value="ACML">可商用（ACML 1.0）</option>
+            <option value="NC">仅非商用（NC）</option>
+          </select>
+        </div>
+      </header>
+      <div id="av-body" class="grid-av"><div class="loading">读取 AivisHub…</div></div>
+    </section>
+
+    <!-- ============ 已装 ============ -->
+    <section class="tab" id="tab-mine">
+      <header class="page-head compact">
+        <p class="eyebrow">本机实况</p>
+        <h2>已经装好的音色</h2>
+        <button class="ghost-btn" id="btn-refresh-mine">重新扫描</button>
+      </header>
+      <div id="mine-body"></div>
+    </section>
+
+  </main>
+
+  <aside class="queue" id="queue">
+    <div class="queue-head">
+      <h3>安装队列</h3>
+      <span class="vu" id="vu"><i></i><i></i><i></i><i></i></span>
+    </div>
+    <div id="jobs" class="jobs"><p class="empty">还没开始装。点卡片上的「装进音色库」。</p></div>
+
+    <div class="queue-head sub">
+      <h3>待装清单</h3>
+      <button class="mini-btn" id="btn-copy-list">复制给我</button>
+    </div>
+    <div id="wish" class="wish"><p class="empty">在卡片上点「加入清单」，攒好后复制给我，我一次帮你装。</p></div>
+  </aside>
+
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

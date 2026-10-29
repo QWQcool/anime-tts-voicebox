@@ -1,0 +1,41 @@
+# ---- 本地权重与运行时（最大头，绝不入库）----
+/GSVI/
+/AivisSpeech/
+/7zr.exe
+
+# ---- 下载缓存与安装包 ----
+/_packages/
+*.7z
+*.zip
+*.7z.part
+*.zip.part
+
+# ---- 生成的音频（配音产物、试听、其它实验）----
+/音色库/out/
+/audio-out/
+*.wav
+*.flac
+*.mp3
+
+# 需要保留的示例图（截图是文档用的 png，单独放行）
+!/音色库/shots/*.png
+
+# ---- 本机实验脚本与私有配置 ----
+/_shots/
+/_probe*.py
+/_test*.py
+/_t*.py
+/_diag.py
+/_mimo_test.py
+/_finalize.py
+/_tidy.py
+start-gsvi-api.bat
+.tmp/
+.playwright-cli/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.log
