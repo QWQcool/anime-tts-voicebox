@@ -22,6 +22,7 @@
 
     <nav class="nav">
       <button class="nav-item is-on" data-tab="dub"><span>配音台</span><em>输入文字 → 出音频</em></button>
+      <button class="nav-item" data-tab="clone"><span>参考人声克隆</span><em>丢音频 → 复刻音色</em></button>
       <button class="nav-item" data-tab="how"><span>怎么放</span><em>安装说明</em></button>
       <button class="nav-item" data-tab="ms"><span>GPT-SoVITS</span><em>中文 / 日语 / 跨语言</em></button>
       <button class="nav-item" data-tab="aivis"><span>AivisSpeech</span><em>纯日语声线</em></button>
@@ -95,7 +96,20 @@
             </div>
             <div class="field">
               <span class="f-label">风格指令（自然语言）</span>
-              <input id="dub-style" type="text" value="少女感的动漫配音，语气活泼，带一点撒娇">
+              <input id="dub-style" type="text" list="style-presets" value="少女感的动漫配音，语气活泼，带一点撒娇">
+              <datalist id="style-presets">
+                <option value="少女感的动漫配音，语气活泼，带一点撒娇">
+                <option value="低沉慵懒的御姐音，语速偏慢，尾音带一点沙哑，居高临下但不刻薄">
+                <option value="清澈的少年音，语速中等，咬字干净，带一点不服输的劲">
+                <option value="温柔的治愈系女声，气声多，语速慢，像在耳边说话">
+                <option value="磁性中年男声，沉稳克制，停顿多，适合旁白解说">
+                <option value="(御姐音)直接用风格标签控制，不走自然语言">
+                <option value="用轻快上扬的语调报喜，语速稍快，压不住的激动和小骄傲">
+                <option value="压抑的愤怒，声音压得很低，字字用力，但不大吼">
+                <option value="(东北话)方言拉满，语速快，尾音拖长，接地气">
+                <option value="(唱歌)台词会按唱歌方式输出，注意只能是中文">
+                <option value="角色：三十岁的女医生。场景：深夜急诊，对慌张的家属说话。指导：语速平稳，音色偏低，句末下沉，不带情绪但让人安心。">
+              </datalist>
             </div>
             <p class="hint">云端引擎：<b>文本会上传到小米服务器</b>，返回 24kHz wav。日语请切回本地引擎。</p>
           </div>
@@ -105,6 +119,70 @@
       </div>
 
       <div id="dub-out" class="dub-out"></div>
+    </section>
+
+    <!-- ============ 参考人声克隆 ============ -->
+    <section class="tab" id="tab-clone">
+      <header class="page-head compact">
+        <p class="eyebrow">零样本克隆 · 不用训练</p>
+        <h2>丢一段人声，让它用这个音色念你的台词</h2>
+        <p class="lede">参考音频要 <b>3~10 秒</b>、单人、无 BGM；参考文本必须<b>逐字一致</b>——填错比音质差更致命。
+          成品落在 <code id="clone-dir">音色库\out</code>。</p>
+      </header>
+
+      <div class="dub-grid">
+        <div class="dub-sheet">
+          <div id="clone-drop" class="clone-drop" role="button" tabindex="0">
+            <input id="clone-file" type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg,.aac" hidden>
+            <div class="cd-head"><b>① 参考人声</b><span id="clone-fileinfo" class="sub">点这里选文件，或把音频拖进来</span></div>
+            <div class="cd-body">支持 wav / mp3 / m4a / flac / ogg，上传后自动转成 32k 单声道、音量压 -2dB</div>
+          </div>
+
+          <div class="field-row" style="margin-top:10px">
+            <div class="field">
+              <span class="f-label">起始秒（从第几秒开始截）</span>
+              <input id="clone-start" type="number" min="0" step="0.1" value="0">
+            </div>
+            <div class="field">
+              <span class="f-label">截取时长（秒，3~10）</span>
+              <input id="clone-len" type="number" min="3" max="10" step="0.1" value="7">
+            </div>
+          </div>
+
+          <label class="f-label" for="clone-ptext">② 参考文本（这段音频里说了什么）</label>
+          <textarea id="clone-ptext" rows="2" placeholder="逐字写下参考音频里的那句话，标点可以省略"></textarea>
+          <div class="dub-actions" style="margin-top:8px">
+            <span class="sub" id="clone-asr-hint">听不清就点右边自动识别（首次会下 480MB 模型，之后很快）</span>
+            <button class="ghost-btn" id="clone-asr">自动识别</button>
+          </div>
+
+          <label class="f-label" for="clone-text" style="margin-top:14px">③ 要念的新台词</label>
+          <textarea id="clone-text" rows="3" placeholder="这是要让它用刚才那个音色说出来的话"></textarea>
+
+          <div class="dub-actions">
+            <span id="clone-status" class="dub-count">等待上传参考音频</span>
+            <button class="btn dub-go" id="clone-go">开始克隆</button>
+          </div>
+        </div>
+
+        <aside class="dub-side">
+          <div class="field">
+            <span class="f-label">参考文本语言</span>
+            <select id="clone-plang"></select>
+          </div>
+          <div class="field">
+            <span class="f-label">新台词语言</span>
+            <select id="clone-tlang"></select>
+          </div>
+          <div class="field">
+            <span class="f-label">底模（只管发音功底，不决定音色）</span>
+            <select id="clone-model"></select>
+          </div>
+          <p class="hint">音色由参考音频决定，底模随便选一个已装音色即可。跨语言也能用：日语参考 + 中文台词没问题。</p>
+        </aside>
+      </div>
+
+      <div id="clone-out" class="dub-out"></div>
     </section>
 
     <!-- ============ 怎么放 ============ -->

@@ -13,6 +13,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -44,6 +45,15 @@ AIVIS_HUB_URL = 'https://hub.aivis-project.com/'
 GSVI_INFER = 'http://127.0.0.1:8000/infer_single'
 OUT_DIR = os.path.join(HERE, 'out')          # 生成的配音落这里，随页面一起可播放/下载
 TEXT_LANGS = ['中文', '英语', '日语', '粤语', '韩语', '中英混合', '日英混合', '粤英混合', '韩英混合', '多语种混合']
+
+# ---- 参考人声克隆：上传 3~10 秒音频 + 对应文本 → 用这个音色念新台词（零样本，不训练）
+GSVI_CLASSIC = 'http://127.0.0.1:8000/infer_classic'
+GSVI_MODELS = 'http://127.0.0.1:8000/classic_model_list/v4'
+CLONE_DIR = os.path.join(GSVI_DIR, 'custom_refs')      # 参考音频落地目录（与网页上传一致）
+RUNTIME_PY = os.path.join(GSVI_DIR, 'runtime', 'python.exe')
+ASR_CACHE = os.path.join(INSTALL_ROOT, 'models_asr')   # Whisper 权重缓存
+REF_MIN, REF_MAX = 3.0, 10.0                           # GSVI 对参考音频的硬性要求
+FFMPEG = os.environ.get('FFMPEG') or shutil.which('ffmpeg') or 'ffmpeg'
 
 # ---- 云端可选引擎：小米 MiMo TTS（OpenAI 兼容；文本会上传到小米服务器）
 MIMO_URL = 'https://api.xiaomimimo.com/v1/chat/completions'
@@ -430,6 +440,152 @@ def mimo_say(voice, style, text):
             'voice': voice, 'text': text}
 
 
+# ---------------------------------------------------------------- 参考人声克隆
+def _safe_stem(name):
+    stem = os.path.splitext(os.path.basename(name or 'ref'))[0]
+    return re.sub(r'[\\/:*?"<>|\s]+', '_', stem)[:40] or 'ref'
+
+
+def _ffmpeg_prep(src, dst, start=None, length=None):
+    """任意格式 → 32k 单声道 16bit wav，音量压 -2dB 防削波；给定 start/length 时只截这一段"""
+    cmd = [FFMPEG, '-y', '-v', 'error']
+    if start is not None:
+        cmd += ['-ss', '%.2f' % start]
+    if length is not None:
+        cmd += ['-t', '%.2f' % length]
+    cmd += ['-i', src, '-ac', '1', '-ar', '32000', '-af', 'volume=-2dB',
+            '-c:a', 'pcm_s16le', dst]
+    p = subprocess.run(cmd, capture_output=True, timeout=180)
+    if p.returncode != 0 or not os.path.isfile(dst) or os.path.getsize(dst) < 1024:
+        raise RuntimeError('音频解码失败：%s'
+                           % (p.stderr.decode('utf-8', 'ignore').strip()[:200] or '格式不支持'))
+
+
+def classic_pick(hint=''):
+    """从 GSVI 已装音色里挑一对 GPT/SoVITS 当底模（底模只管发音功底，音色由参考音频决定）"""
+    try:
+        d = json.loads(urllib.request.urlopen(GSVI_MODELS, timeout=20).read().decode('utf-8'))
+    except Exception:  # noqa: BLE001
+        raise RuntimeError('连不上 GSVI（127.0.0.1:8000），先双击 1-启动GPT-SoVITS配音.bat') from None
+    gpt = list(dict.fromkeys(d.get('gpt') or []))
+    sovits = list(dict.fromkeys(d.get('sovits') or []))
+    if not gpt or not sovits:
+        raise RuntimeError('没有可用的底模，先在「GPT-SoVITS」标签装一个音色')
+    gi = hint if hint in gpt else gpt[0]
+    si = hint if hint in sovits else sovits[0]
+    return gi, si
+
+
+def clone_upload(fname, raw, start=None, length=None):
+    """保存上传的参考音频并统一转成 wav；超长自动截断到 9.5 秒"""
+    os.makedirs(CLONE_DIR, exist_ok=True)
+    ext = (os.path.splitext(fname)[1] or '.bin').lstrip('.')
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    raw_path = os.path.join(CLONE_DIR, '%s_%s.%s' % (stamp, _safe_stem(fname), ext))
+    open(raw_path, 'wb').write(raw)
+
+    wav_path = os.path.join(CLONE_DIR, '%s_%s.wav' % (stamp, _safe_stem(fname)))
+    _ffmpeg_prep(raw_path, wav_path, start, length)
+    dur, db, sr, ch = wav_stats(wav_path)
+
+    trimmed = False
+    if dur > REF_MAX:  # 太长就自动取前 9.5 秒，先能跑起来
+        cut_path = wav_path.replace('.wav', '_cut.wav')
+        _ffmpeg_prep(raw_path, cut_path, 0, 9.5)
+        wav_path = cut_path
+        dur, db, sr, ch = wav_stats(wav_path)
+        trimmed = True
+
+    if dur < REF_MIN:
+        raise RuntimeError('参考音频只有 %.1f 秒，至少要 3 秒（建议 5~8 秒）' % dur)
+
+    warn = ''
+    if trimmed:
+        warn = '原音频超过 10 秒，已自动截取前 9.5 秒；想换更干净的片段，改「起始秒」后重新上传'
+    if db < -30:
+        warn = (warn + '；' if warn else '') + '这段音频偏静（峰值 %.1f dB），可能是纯伴奏或静音' % db
+    return {'msg': '上传成功', 'path': wav_path, 'name': os.path.basename(wav_path),
+            'duration': dur, 'peakDb': db, 'sampleRate': sr, 'channels': ch,
+            'trimmed': trimmed, 'warn': warn, 'source': raw_path}
+
+
+def clone_asr(path):
+    """用包里自带的 faster-whisper 识别参考音频文本（首次会下 ~480MB 权重）"""
+    if not path or not os.path.isfile(path):
+        raise RuntimeError('参考音频不存在，请先上传')
+    worker = os.path.join(HERE, 'asr_worker.py')
+    if not os.path.isfile(worker):
+        raise RuntimeError('缺少 asr_worker.py')
+    env = dict(os.environ)
+    env.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+    p = subprocess.run([RUNTIME_PY, worker, path, ASR_CACHE],
+                       capture_output=True, timeout=900, env=env)
+    out = p.stdout.decode('utf-8', 'ignore').strip()
+    last = out.splitlines()[-1] if out else ''
+    try:
+        d = json.loads(last)
+    except Exception:  # noqa: BLE001
+        err = p.stderr.decode('utf-8', 'ignore').strip()[-300:]
+        raise RuntimeError('识别失败：%s' % (err or out[-300:] or '未知错误')) from None
+    if d.get('error'):
+        raise RuntimeError(d['error'])
+    return d
+
+
+def clone_say(ref_path, prompt_text, prompt_lang, text, text_lang, model_hint=''):
+    """零样本克隆：参考音频 + 参考文本 → 用这个音色念新台词"""
+    if not ref_path or not os.path.isfile(ref_path):
+        raise RuntimeError('参考音频无效，请重新上传')
+    if os.path.abspath(os.path.dirname(ref_path)) != os.path.abspath(CLONE_DIR):
+        raise RuntimeError('参考音频必须来自本页上传')
+    dur, db, _, _ = wav_stats(ref_path)
+    if not (REF_MIN <= dur <= REF_MAX):
+        raise RuntimeError('参考音频 %.1f 秒，必须在 3~10 秒之间' % dur)
+    if not (prompt_text or '').strip():
+        raise RuntimeError('请填写参考文本：这段音频里说的是什么，要逐字一致')
+    if text_lang not in TEXT_LANGS:
+        raise RuntimeError('文本语言不合法：%s' % text_lang)
+    if not (text or '').strip():
+        raise RuntimeError('台词是空的')
+
+    gpt, sovits = classic_pick(model_hint)
+    payload = {'version': 'v4', 'gpt_model_name': gpt, 'sovits_model_name': sovits,
+               'ref_audio_path': ref_path, 'prompt_text': prompt_text,
+               'prompt_text_lang': prompt_lang, 'text': text, 'text_lang': text_lang}
+    req = urllib.request.Request(GSVI_CLASSIC,
+                                 data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                                 headers={'Content-Type': 'application/json'})
+    t0 = time.time()
+    with urllib.request.urlopen(req, timeout=900) as r:
+        res = json.loads(r.read().decode('utf-8'))
+    ms = int((time.time() - t0) * 1000)
+
+    msg = res.get('msg') or ''
+    url = res.get('audio_url') or ''
+    if not url:
+        raise RuntimeError(msg or '克隆失败（没有返回音频）')
+
+    src_name = urllib.parse.urlparse(url).path.rsplit('/', 1)[-1]
+    src = os.path.join(GSVI_DIR, 'outputs', src_name)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    stem = re.sub(r'[\\/:*?"<>|\s]+', '_', text.strip())[:14] or 'seg'
+    dst_name = '%s_克隆_%s.wav' % (time.strftime('%Y%m%d-%H%M%S'), stem)
+    dst = os.path.join(OUT_DIR, dst_name)
+    if os.path.isfile(src):
+        shutil.copy2(src, dst)
+    else:
+        with urllib.request.urlopen(url.replace('0.0.0.0', '127.0.0.1'), timeout=120) as r:
+            open(dst, 'wb').write(r.read())
+
+    d2, db2, sr2, ch2 = wav_stats(dst)
+    return {'msg': msg or '克隆成功', 'file': dst, 'name': dst_name,
+            'url': 'out/' + urllib.parse.quote(dst_name), 'duration': d2, 'peakDb': db2,
+            'sampleRate': sr2, 'channels': ch2, 'ms': ms, 'bytes': os.path.getsize(dst),
+            'voice': '克隆·' + os.path.basename(ref_path), 'text': text,
+            'refDuration': dur, 'promptText': prompt_text,
+            'baseModel': '%s / %s' % (gpt, sovits)}
+
+
 def probe(url):
     try:
         req = urllib.request.Request(url, headers=UA)
@@ -495,6 +651,18 @@ class Handler(SimpleHTTPRequestHandler):
                     os.startfile(target)  # noqa: S606
                     return self._json({'ok': True, 'opened': target})
                 return self._json({'ok': False, 'error': '目录不存在'}, 404)
+            if u.path == '/api/clone/models':
+                try:
+                    gpt, sovits = classic_pick('')
+                    ok = True
+                except Exception as e:  # noqa: BLE001
+                    return self._json({'error': str(e), 'gpt': [], 'sovits': []}, 200)
+                d = json.loads(urllib.request.urlopen(GSVI_MODELS, timeout=20).read().decode('utf-8'))
+                return self._json({'gpt': list(dict.fromkeys(d.get('gpt') or [])),
+                                   'sovits': list(dict.fromkeys(d.get('sovits') or [])),
+                                   'default': {'gpt': gpt, 'sovits': sovits},
+                                   'textLangs': TEXT_LANGS, 'refMin': REF_MIN, 'refMax': REF_MAX,
+                                   'cloneDir': CLONE_DIR, 'outDir': OUT_DIR, 'ready': ok})
             if u.path == '/api/tts/voices':
                 return self._json({'voices': voices(), 'textLangs': TEXT_LANGS,
                                    'outDir': OUT_DIR,
@@ -509,7 +677,27 @@ class Handler(SimpleHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         try:
             n = int(self.headers.get('Content-Length') or 0)
+            if u.path == '/api/clone/upload':
+                # 裸字节上传：?name=xxx&start=&len=，避免 multipart 解析
+                qs = urllib.parse.parse_qs(u.query)
+                one = lambda k, d=None: (qs.get(k) or [d])[0]  # noqa: E731
+                raw = self.rfile.read(n) if n else b''
+                if not raw:
+                    raise RuntimeError('没有收到音频数据')
+                def _num(k):
+                    v = one(k)
+                    try:
+                        return float(v) if v not in (None, '') else None
+                    except ValueError:
+                        return None
+                return self._json(clone_upload(one('name') or 'ref.bin', raw, _num('start'), _num('len')))
             data = json.loads(self.rfile.read(n).decode('utf-8')) if n else {}
+            if u.path == '/api/clone/asr':
+                return self._json(clone_asr(data.get('path', '')))
+            if u.path == '/api/clone/say':
+                return self._json(clone_say(data.get('refPath', ''), data.get('promptText', ''),
+                                            data.get('promptLang', '中文'), data.get('text', ''),
+                                            data.get('textLang', '中文'), data.get('model', '')))
             if u.path == '/api/tts/say':
                 if data.get('engine') == 'mimo':
                     res = mimo_say(data.get('voice', ''), data.get('style', ''), data.get('text', ''))

@@ -32,6 +32,7 @@
       $$('.nav-item').forEach((b) => b.classList.toggle('is-on', b === btn));
       $$('.tab').forEach((t) => t.classList.toggle('is-on', t.id === 'tab-' + btn.dataset.tab));
       if (btn.dataset.tab === 'dub' && !state.dubLoaded) loadDub();
+      if (btn.dataset.tab === 'clone' && !state.cloneLoaded) loadClone();
       if (btn.dataset.tab === 'ms' && !state.msLoaded) loadMs('');
       if (btn.dataset.tab === 'aivis' && !state.avLoaded) loadAivis();
       if (btn.dataset.tab === 'mine') loadMine();
@@ -67,7 +68,7 @@
   const state = {
     msPath: '', msLoaded: false, msFiles: [], avLoaded: false,
     avModels: [], avTotal: 76, wish: [], jobs: new Map(), paths: null,
-    dubLoaded: false, dub: null, engine: 'local',
+    dubLoaded: false, dub: null, engine: 'local', cloneLoaded: false, clonePath: '',
   };
 
   try { state.wish = JSON.parse(localStorage.getItem('wish') || '[]'); } catch (e) { state.wish = []; }
@@ -608,6 +609,181 @@
   });
 
   $('#btn-refresh-mine').addEventListener('click', loadMine);
+
+  /* ------------------------------------------------ 参考人声克隆 */
+  const CLONE_LANGS = ['中文', '英语', '日语', '粤语', '韩语', '中英混合', '日英混合', '粤英混合', '韩英混合', '多语种混合'];
+
+  async function loadClone() {
+    state.cloneLoaded = true;
+    const fill = (sel, arr, def) => {
+      const el = dsel(sel);
+      el.innerHTML = arr.map((v) => '<option value="' + esc(v) + '">' + esc(v) + '</option>').join('');
+      if (def && arr.indexOf(def) >= 0) el.value = def;
+    };
+    try {
+      const d = await api('/api/clone/models');
+      if (d.error) toast(d.error, 6000);
+      const langs = d.textLangs || CLONE_LANGS;
+      fill('#clone-plang', langs, '中文');
+      fill('#clone-tlang', langs, '中文');
+      const gpt = d.gpt || [];
+      const sov = d.sovits || [];
+      const el = dsel('#clone-model');
+      el.innerHTML = gpt.length
+        ? gpt.map((g, i) => '<option value="' + esc(g) + '">' + esc(g) + (sov[i] ? ' / ' + esc(sov[i]) : '') + '</option>').join('')
+        : '<option value="">（没有底模，先去「GPT-SoVITS」装一个音色）</option>';
+      const dirEl = dsel('#clone-dir');
+      if (dirEl && d.cloneDir) dirEl.textContent = d.cloneDir;
+      if (d.refMin) dsel('#clone-len').min = d.refMin;
+      if (d.refMax) dsel('#clone-len').max = d.refMax;
+    } catch (e) {
+      toast('读取克隆配置失败：' + e.message, 6000);
+    }
+  }
+
+  const dropZone = dsel('#clone-drop');
+  const cloneFile = dsel('#clone-file');
+
+  async function uploadRef(file) {
+    const start = Number(dsel('#clone-start').value || 0);
+    const len = Number(dsel('#clone-len').value || 7);
+    if (!(len >= 3 && len <= 10)) return toast('截取时长要填 3~10 秒');
+    dsel('#clone-fileinfo').textContent = '上传中… ' + file.name;
+    dsel('#clone-status').textContent = '解码中…';
+    try {
+      const qs = '/api/clone/upload?name=' + encodeURIComponent(file.name)
+        + '&start=' + (isFinite(start) ? start : 0) + '&len=' + len;
+      const r = await fetch(qs, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: file,
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      state.clonePath = j.path;
+      dsel('#clone-fileinfo').textContent = esc(file.name) + ' · ' + j.duration.toFixed(2) + ' s · 峰值 ' + j.peakDb + ' dB';
+      dsel('#clone-status').textContent = j.warn || ('参考音频就绪：' + j.duration.toFixed(2) + ' 秒，填好文本就能克隆');
+      dropZone.classList.add('ok');
+      toast('参考音频已就绪');
+    } catch (e) {
+      state.clonePath = '';
+      dropZone.classList.remove('ok');
+      dsel('#clone-fileinfo').textContent = '上传失败，换一段再试';
+      dsel('#clone-status').textContent = '等待上传参考音频';
+      toast(e.message, 7000);
+    }
+  }
+
+  dropZone.addEventListener('click', () => cloneFile.click());
+  dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cloneFile.click(); }
+  });
+  ['dragenter', 'dragover'].forEach((ev) => dropZone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    dropZone.classList.add('is-over');
+  }));
+  ['dragleave', 'drop'].forEach((ev) => dropZone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('is-over');
+  }));
+  dropZone.addEventListener('drop', (e) => {
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) uploadRef(f);
+  });
+  cloneFile.addEventListener('change', () => {
+    if (cloneFile.files[0]) uploadRef(cloneFile.files[0]);
+  });
+
+  dsel('#clone-asr').addEventListener('click', async () => {
+    if (!state.clonePath) return toast('先上传参考音频');
+    const b = dsel('#clone-asr');
+    if (b.disabled) return;
+    b.disabled = true;
+    b.textContent = '识别中…';
+    try {
+      const r = await fetch('/api/clone/asr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: state.clonePath }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      dsel('#clone-ptext').value = j.text || '';
+      toast('识别完成（' + j.language + '），请对照音频校对一遍', 5000);
+    } catch (e) {
+      toast(e.message, 8000);
+    }
+    b.disabled = false;
+    b.textContent = '自动识别';
+  });
+
+  dsel('#clone-go').addEventListener('click', cloneGo);
+
+  async function cloneGo() {
+    if (!state.clonePath) return toast('先上传参考音频');
+    const pt = dsel('#clone-ptext').value.trim();
+    const tx = dsel('#clone-text').value.trim();
+    if (!pt) return toast('先填参考文本（这段音频说了什么）');
+    if (!tx) return toast('写点要念的台词');
+    const btn = dsel('#clone-go');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = '克隆中…';
+    dsel('#clone-out').innerHTML = '';
+    try {
+      const r = await fetch('/api/clone/say', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          refPath: state.clonePath,
+          promptText: pt,
+          promptLang: dsel('#clone-plang').value,
+          text: tx,
+          textLang: dsel('#clone-tlang').value,
+          model: dsel('#clone-model').value,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+      addCloneItem(tx, j);
+    } catch (e) {
+      addCloneItem(tx, null, e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = '开始克隆';
+  }
+
+  function addCloneItem(text, r, err) {
+    const box = dsel('#clone-out');
+    const el = document.createElement('div');
+    el.className = 'dub-item' + (err ? ' bad' : '');
+    if (err) {
+      el.innerHTML = '<span class="no">✕</span>'
+        + '<div><p class="say">' + esc(text) + '</p>'
+        + '<p class="errmsg">' + esc(err) + '</p></div>'
+        + '<div class="stats"><em>失败</em></div>';
+      el.title = err;
+      box.appendChild(el);
+      toast('克隆失败：' + err, 8000);
+      return;
+    }
+    const quiet = r.peakDb > -99 && r.peakDb < -25;
+    el.innerHTML = '<span class="no">✓</span>'
+      + '<div><p class="say">' + esc(text) + '</p>'
+      + '<audio controls preload="metadata" src="' + esc(r.url) + '"></audio></div>'
+      + '<div class="stats"><b>' + r.duration.toFixed(2) + ' s</b><br>'
+      + (quiet ? '<em>峰值 ' + r.peakDb + ' dB（偏静，检查文本语言）</em>' : '峰值 ' + r.peakDb + ' dB') + '<br>'
+      + '参考 ' + r.refDuration + ' s · ' + (r.ms / 1000).toFixed(1) + ' s 生成<br>'
+      + '<a class="dl" download="' + esc(r.name) + '" href="' + esc(r.url) + '">保存</a> · '
+      + '<a class="dl" href="#" data-dl="' + esc(r.file) + '">文件夹</a></div>';
+    box.appendChild(el);
+    toast('克隆完成，' + r.duration.toFixed(2) + ' 秒');
+  }
+
+  dsel('#clone-out').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-dl]');
+    if (b) { ev.preventDefault(); fetch('/api/open?path=' + encodeURIComponent(b.dataset.dl)); }
+  });
 
   /* ------------------------------------------------ 启动 */
   renderWish();
