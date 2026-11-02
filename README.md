@@ -25,15 +25,26 @@
 
 | 项 | 要求 | 说明 |
 |---|---|---|
-| 系统 | Windows 10/11 64 位 | CUDA 运行时已打包，不用装 Python / PyTorch |
+| 系统 | Windows 10/11 64 位 | CUDA 运行时已打包，**不用装 PyTorch**；面板要一个 Python（见下） |
+| Python | 3.11+（**或用 setup.ps1 装好的自带运行时**） | 只有 `3-打开音色库.bat` 用得上，纯标准库、无 pip 依赖 |
 | 显卡 | NVIDIA，驱动 **≥ 551**（CUDA 12.4） | 50 系需换 `GPT-SoVITS-1007-cu128.7z` |
-| 显存 | ≥ 6 GB | 实测 RTX 3080 10GB，两个服务同开占 6.7 GB |
-| 磁盘 | **≥ 30 GB**，路径不要带空格 | 解压 14 GB + 安装包 7.5 GB + 音色 + AivisSpeech |
-| 网络 | 首次安装需要 | `modelscope.cn`（直连可用）、`github.com`、`hf-mirror.com` |
+| 显存 | **≥ 6 GB** | 实测 10GB 卡两服务同开占 6.7 GB；6GB 卡建议只开配音服务 |
+| 内存 | **≥ 16 GB** | 解压 6.5 万个小文件、加载权重时比较吃内存 |
+| 磁盘 | **≥ 30 GB**（想炼音色留 50 GB） | 解压 14 GB + 安装包 7.5 GB + 音色 + AivisSpeech |
+| 网络 | 仅首次安装需要 | `modelscope.cn`（直连可用）、`github.com`、`hf-mirror.com` |
+
+**没有 N 卡能跑吗？** 能启动，但慢到没法用：GPT-SoVITS 会回退到 CPU 推理，
+一句话要等十几秒到几十秒（RTF 0.5 左右，正常显卡是 0.03）。应急可以，日常工作不建议。
+
+**想自己训音色？** 显存门槛更高：v4 LoRA 微调建议 **≥ 12 GB**，全量微调 ≥ 14 GB，
+16 GB 卡训 1 分钟数据约 20~40 分钟。详见 `炼音色-微调训练手册.md`。
 
 ---
 
 ## 三步装好
+
+> 下面的 `D:\TTS` 是**示例目录，换成你想放的任意位置都行**（`C:\TTS`、`E:\Tools\TTS` 都可以）。
+> 唯一的硬性要求：**路径不要有空格、尽量不要有中文**，否则解压和 ffmpeg 容易出错。
 
 ```powershell
 git clone https://github.com/QWQcool/anime-tts-voicebox.git D:\TTS
@@ -47,6 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 2. 下 `7zr.exe`（只有 600 KB）
 3. 下 `GPT-SoVITS-1007-cu124.7z`（7.5 GB，断点续传）→ **校验字节数必须等于 7,844,088,481**
 4. 解压到 `GSVI\`（65088 个文件，5~10 分钟）
+
 5. 下两个爱丽丝音色（中文 + 日语，各 213 MB）→ GBK 解压 → 重命名成 `蔚蓝档案-中文-爱丽丝`
 6. 下 AivisSpeech 1.0.0（370 MB）→ 解压
 
@@ -69,6 +81,21 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 | `1-启动GPT-SoVITS配音.bat` | 本地推理服务 + 网页 | <http://127.0.0.1:8000> |
 | `3-打开音色库.bat` | **配音台**（写台词出音频）+ 音色搜索安装 | <http://127.0.0.1:8899> |
 | `2-启动AivisSpeech日语配音.bat` | 日语引擎 + 编辑器 | 编辑器自动拉起 :10101 |
+
+### 双击 bat 会联网下载东西吗？
+
+**不会下模型本体**，但有三种情况会走网络，心里有数就行：
+
+| 动作 | 会不会联网 | 说明 |
+|---|---|---|
+| 双击 `1-启动GPT-SoVITS配音.bat` | ❌ 不联网 | 纯本地起服务，断网也能用 |
+| 双击 `3-打开音色库.bat` | ❌ 不联网 | 起本地网页；但**页面里点“安装角色”会下模型**（几百 MB/个） |
+| 双击 `2-启动AivisSpeech日语配音.bat` | ⚠️ **首次会下 1.3 GB** | AivisSpeech 自己要下 BERT 模型（已指向 hf-mirror 镜像），之后不再下 |
+| 跑 `setup.ps1` | ✅ 会下 22 GB | 推理包 7.5 GB + 音色 + AivisSpeech，这才是大件 |
+
+`3-打开音色库.bat` 找解释器的顺序：系统 `python` → `py` 启动器 → `GSVI\...\runtime\python.exe`（setup 装的）。
+三个都找不到会给出明确提示，不会闪退。
+
 
 配音台里**一段一行**，每行出一个 wav，落在 `音色库\out\`，显示时长 / 峰值电平 / 生成耗时。
 峰值低于 -25 dB 会标“偏静”——基本是文本语言选错了，别当成功。
