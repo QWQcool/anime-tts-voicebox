@@ -438,7 +438,8 @@
         return;
       }
       dsel('#dub-voice').innerHTML = vs.map((v) =>
-        '<option value="' + esc(v.voice) + '">' + esc(v.role) + ' · ' + esc(v.game) + ' ' + esc(v.lang) + '</option>').join('');
+        '<option value="' + esc(v.voice) + '">' + esc(v.role) + ' · ' + esc(v.game) + ' ' + esc(v.lang)
+        + (v.version && v.version !== 'v4' ? ' [' + esc(v.version) + ']' : '') + '</option>').join('');
       dsel('#dub-voice').addEventListener('change', onVoiceChange);
       onVoiceChange();
 

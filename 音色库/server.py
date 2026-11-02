@@ -30,6 +30,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL_ROOT = os.path.dirname(HERE)                      # D:\TTS
 GSVI_DIR = os.path.join(INSTALL_ROOT, 'GSVI', 'GPT-SoVITS-1007-cu124')
 V4_DIR = os.path.join(GSVI_DIR, 'models', 'v4')
+# 音色可能分散在不同世代目录：官方合集是 v4，社区模型多为 v2
+MODELS_ROOT = os.path.join(GSVI_DIR, 'models')
+VERSION_DIRS = [(v, os.path.join(MODELS_ROOT, v))
+                for v in ('v4', 'v3', 'v2', 'v2Pro', 'v2ProPlus')]
 TMP_DIR = os.path.join(INSTALL_ROOT, '_packages')
 AIVIS_MODELS = os.path.join(os.environ['APPDATA'], 'AivisSpeech-Engine', 'Models')
 
@@ -277,35 +281,49 @@ def installed():
 
 # ---------------------------------------------------------------- 配音（文本 → 音频）
 def voices():
-    """扫描 models/v4，拆出 游戏-语言-角色 + 该音色自带的参考语言与情感"""
+    """扫描 models/<版本>，拆出 游戏-语言-角色 + 该音色自带的参考语言与情感
+
+    不同世代的权重必须用对应版本目录（社区模型多为 v2，官方合集是 v4），
+    所以每个音色带一个 version 字段，合成时回传给 GSVI。
+    """
     out = []
-    if not os.path.isdir(V4_DIR):
-        return out
-    for name in sorted(os.listdir(V4_DIR)):
-        p = os.path.join(V4_DIR, name)
-        if not os.path.isdir(p):
+    for ver, root in VERSION_DIRS:
+        if not os.path.isdir(root):
             continue
-        parts = name.split('-')
-        game = parts[0] if len(parts) > 2 else ''
-        lang = parts[1] if len(parts) > 2 else ''
-        role = '-'.join(parts[2:]) if len(parts) > 2 else name
-        ref = os.path.join(p, 'reference_audios')
-        emotions = {}
-        if os.path.isdir(ref):
-            for lg in sorted(os.listdir(ref)):
-                ed = os.path.join(ref, lg, 'emotions')
-                emos = []
-                if os.path.isdir(ed):
-                    for f in sorted(os.listdir(ed)):
-                        m = re.match(r'【(.+?)】', f)
-                        if f.lower().endswith('.wav') and m:
-                            emos.append(m.group(1))
-                emotions[lg] = emos
-        out.append({'voice': name, 'game': game, 'lang': lang, 'role': role,
-                    'refLangs': list(emotions.keys()), 'emotions': emotions,
-                    'hasWeights': any(f.endswith('.ckpt') for f in os.listdir(p))
-                    and any(f.endswith('.pth') for f in os.listdir(p))})
+        for name in sorted(os.listdir(root)):
+            p = os.path.join(root, name)
+            if not os.path.isdir(p):
+                continue
+            parts = name.split('-')
+            game = parts[0] if len(parts) > 2 else ''
+            lang = parts[1] if len(parts) > 2 else ''
+            role = '-'.join(parts[2:]) if len(parts) > 2 else name
+            ref = os.path.join(p, 'reference_audios')
+            emotions = {}
+            if os.path.isdir(ref):
+                for lg in sorted(os.listdir(ref)):
+                    ed = os.path.join(ref, lg, 'emotions')
+                    emos = []
+                    if os.path.isdir(ed):
+                        for f in sorted(os.listdir(ed)):
+                            m = re.match(r'【(.+?)】', f)
+                            if f.lower().endswith('.wav') and m:
+                                emos.append(m.group(1))
+                    emotions[lg] = emos
+            out.append({'voice': name, 'game': game, 'lang': lang, 'role': role,
+                        'version': ver,
+                        'refLangs': list(emotions.keys()), 'emotions': emotions,
+                        'hasWeights': any(f.endswith('.ckpt') for f in os.listdir(p))
+                        and any(f.endswith('.pth') for f in os.listdir(p))})
     return out
+
+
+def voice_version(name):
+    """按目录归属判断这个音色属于哪个版本（v4 优先）"""
+    for ver, root in VERSION_DIRS:
+        if name and os.path.isdir(os.path.join(root, name)):
+            return ver
+    return 'v4'
 
 
 def wav_stats(path):
@@ -332,14 +350,16 @@ def wav_stats(path):
 
 
 def say(voice, prompt_lang, emotion, text_lang, text):
-    if not voice or os.path.basename(voice) != voice or not os.path.isdir(os.path.join(V4_DIR, voice)):
+    ver = voice_version(voice)
+    vdir = os.path.join(MODELS_ROOT, ver, voice)
+    if not voice or os.path.basename(voice) != voice or not os.path.isdir(vdir):
         raise RuntimeError('音色不存在：%s' % voice)
     if text_lang not in TEXT_LANGS:
         raise RuntimeError('文本语言不合法：%s（只能是 %s）' % (text_lang, ' / '.join(TEXT_LANGS)))
     if not text.strip():
         raise RuntimeError('文本是空的')
 
-    payload = {'version': 'v4', 'model_name': voice, 'prompt_text_lang': prompt_lang,
+    payload = {'version': ver, 'model_name': voice, 'prompt_text_lang': prompt_lang,
                'emotion': emotion, 'text': text, 'text_lang': text_lang}
     req = urllib.request.Request(GSVI_INFER, data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
                                  headers={'Content-Type': 'application/json'})
